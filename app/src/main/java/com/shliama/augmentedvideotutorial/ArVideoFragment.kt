@@ -1,12 +1,17 @@
 package com.shliama.augmentedvideotutorial
 
+import android.Manifest
 import android.animation.ValueAnimator
+import android.content.ContentValues
+import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.RectF
+import android.media.CamcorderProfile
 import android.media.MediaMetadataRetriever
 import android.media.MediaMetadataRetriever.*
 import android.media.MediaPlayer
+import android.net.Uri
 import android.os.Bundle
 import android.util.Log
 import android.view.LayoutInflater
@@ -22,6 +27,11 @@ import com.google.ar.sceneform.rendering.ExternalTexture
 import com.google.ar.sceneform.rendering.ModelRenderable
 import com.google.ar.sceneform.ux.ArFragment
 import java.io.IOException
+import android.os.CountDownTimer
+import android.provider.MediaStore
+import android.provider.Settings
+import com.google.android.material.floatingactionbutton.FloatingActionButton
+
 
 open class ArVideoFragment : ArFragment() {
 
@@ -29,12 +39,15 @@ open class ArVideoFragment : ArFragment() {
     private lateinit var externalTexture: ExternalTexture
     private lateinit var videoRenderable: ModelRenderable
     private lateinit var videoAnchorNode: VideoAnchorNode
+    private lateinit var videoRecorder: VideoRecorder
+//    private lateinit var recordButton: FloatingActionButton
 
     private var activeAugmentedImage: AugmentedImage? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         mediaPlayer = MediaPlayer()
+        videoRecorder = VideoRecorder()
     }
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View? {
@@ -45,11 +58,27 @@ open class ArVideoFragment : ArFragment() {
         arSceneView.planeRenderer.isEnabled = false
         arSceneView.isLightEstimationEnabled = false
 
+
+
         initializeSession()
         createArScene()
+        setUpVideoRecorder()
+
+
+//        recordButton = view!!.findViewById(R.id.record)
+//        recordButton.setOnClickListener(View.OnClickListener { this.toggleRecording(it) })
+//        recordButton.isEnabled = true
+//        recordButton.setImageResource(R.drawable.round_videocam)
 
         return view
     }
+
+//    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+//        recordButton = view.findViewById(R.id.record)
+//        recordButton.setOnClickListener(View.OnClickListener { this.toggleRecording(it) })
+//        recordButton.isEnabled = true
+//        recordButton.setImageResource(R.drawable.round_videocam)
+//    }
 
     override fun getSessionConfiguration(session: Session): Config {
 
@@ -107,6 +136,13 @@ open class ArVideoFragment : ArFragment() {
         videoAnchorNode = VideoAnchorNode().apply {
             setParent(arSceneView.scene)
         }
+    }
+
+    private fun setUpVideoRecorder() {
+        videoRecorder.setSceneView(arSceneView)
+        val orientation = resources.configuration.orientation
+        videoRecorder.setVideoQuality(CamcorderProfile.QUALITY_2160P, orientation)
+        videoRecorder.onToggleRecord()
     }
 
     override fun onUpdate(frameTime: FrameTime) {
@@ -201,6 +237,9 @@ open class ArVideoFragment : ArFragment() {
     }
 
     override fun onPause() {
+        if (videoRecorder.isRecording) {
+            toggleRecording(null)
+        }
         super.onPause()
         dismissArVideo()
     }
@@ -227,5 +266,43 @@ open class ArVideoFragment : ArFragment() {
         private const val MATERIAL_VIDEO_SIZE = "videoSize"
         private const val MATERIAL_VIDEO_CROP = "videoCropEnabled"
         private const val MATERIAL_VIDEO_ALPHA = "videoAlpha"
+    }
+    override fun getAdditionalPermissions(): Array<String> {
+        val additionalPermissions = super.getAdditionalPermissions()
+        val permissionLength = additionalPermissions?.size ?: 0
+        val permissions = Array<String>(permissionLength + 1) { i -> Manifest.permission.WRITE_EXTERNAL_STORAGE }
+        if (permissionLength > 0) {
+            System.arraycopy(additionalPermissions!!, 0, permissions, 1, additionalPermissions.size)
+        }
+        return permissions
+    }
+
+    fun hasWritePermission(): Boolean {
+        return true
+    }
+
+    /** Launch Application Setting to grant permissions.  */
+    fun launchPermissionSettings() {
+        val intent = Intent()
+        intent.action = Settings.ACTION_APPLICATION_DETAILS_SETTINGS
+        intent.data = Uri.fromParts("package", requireActivity().packageName, null)
+        requireActivity().startActivity(intent)
+    }
+
+    /*
+   * Used as a handler for onClick, so the signature must match onClickListener.
+   */
+    private fun toggleRecording(unusedView: View?) {
+        val recording = videoRecorder.onToggleRecord()
+        if (!recording) {
+            val videoPath = videoRecorder.videoPath?.absolutePath
+
+            // Send  notification of updated content.
+            val values = ContentValues()
+            values.put(MediaStore.Video.Media.TITLE, "Sceneform Video")
+            values.put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
+            values.put(MediaStore.Video.Media.DATA, videoPath)
+            activity?.applicationContext?.contentResolver?.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values)
+        }
     }
 }
